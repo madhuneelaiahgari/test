@@ -1,0 +1,2490 @@
+config_format_version: '0.10'
+use_bda: false
+enable_blueprint_optimization: false
+managed: false
+test_set: null
+notes: >-
+  Lending package sample - processes payslips, driver licenses, bank checks,
+  bank statements, W2s, and insurance applications - . Set use_bda: true for BDA
+  mode.
+malware_scanning:
+  on_unscannable: block
+  alert_on_block: true
+preprocessing:
+  enabled: false
+  arn: null
+  onError: continue
+  args: []
+  featureId: ''
+  allowDocumentUpdate: true
+ocr:
+  postHook: []
+  backend: textract
+  bda_project_arn: null
+  model_id: us.amazon.nova-2-lite-v1:0
+  model_lambda_hook_arn: null
+  system_prompt: >-
+    You are an expert OCR system. Extract all text from the provided image
+    accurately, preserving layout where possible.
+  task_prompt: >-
+    Extract all text from this document image. Preserve the layout, including
+    paragraphs, tables, and formatting.
+  reasoning_effort: medium
+  features:
+    - name: TABLES
+    - name: LAYOUT
+    - name: SIGNATURES
+  max_workers: '20'
+  image:
+    target_width: null
+    target_height: null
+    dpi: null
+    preprocessing: null
+classification:
+  postHook: []
+  strategy: combined
+  fallback_class: unclassified
+  combined:
+    granularity: page
+    page:
+      contextPagesCount: 0
+      system_prompt: >-
+        You are a multimodal document classification expert that analyzes
+        business documents using both visual layout and textual content. Your
+        task is to classify single-page documents into predefined categories
+        based on their structural patterns, visual features, and text content.
+        Your output must be valid JSON according to the requested format.
+        <variables> <document-ocr-data>: OCR-extracted text content from the
+        document page that provides textual information for classification
+        <document-image>: Visual representation of the document page that
+        provides layout, formatting, and visual structure information
+        <document-types>: List of valid document types with their descriptions
+        that the document must be classified into </variables>
+      task_prompt: >-
+        <task-description> Analyze the provided document using both its visual
+        layout and textual content to determine its document type and whether
+        this page begins a new document or continues the previous one.
+        </task-description>
+
+        <document-types> {CLASS_NAMES_AND_DESCRIPTIONS} </document-types>
+
+        <few-shot-examples> {FEW_SHOT_EXAMPLES} </few-shot-examples>
+
+        <classification-instructions> Follow these steps to classify the
+        document: 1. Examine the visual layout: headers, logos, formatting,
+        structure, and visual organization 2. Analyze the textual content: key
+        phrases, terminology, purpose, and information type 3. Identify
+        distinctive features that match the document type descriptions 4. Decide
+        the document_boundary by applying the <boundary-detection-rules> below
+        5. Consider both visual and textual evidence together to determine the
+        best match 6. CRITICAL: Only use document types explicitly listed in the
+        <document-types> section </classification-instructions>
+
+        <boundary-detection-rules> You are classifying ONE page at a time. Any
+        pages shown to you as context are there only to help you judge this
+        page; classify only the page identified as the page to classify.
+        "document_boundary" answers one question: is this page the FIRST page of
+        a document instance ("start"), or a later page of a document instance
+        that already began on an earlier page ("continue")? Decide from this
+        page's own evidence, in priority order: 1. PAGINATION: If the page shows
+        pagination such as "Page 2 of 2", "Page 3 of 5", "2/2", or "continued"
+        with a number greater than 1, this page is NOT a first page - output
+        "continue". 2. If pagination indicates the first page (for example "Page
+        1 of 2"), output "start". 3. OPENING HEADER BLOCK: A first page carries
+        the document's opening identity block - the document title or form name,
+        the issuer or institution name, the addressee or account holder name AND
+        address, the statement or document date or period, and account or
+        reference numbers. Output "start" ONLY when this page carries that
+        opening block. 4. TABLE CONTINUATION: A page whose content is a table or
+        list of rows - even when the table's COLUMN HEADINGS (for example "Date
+        | Description | Amount") are repeated at the top of the page - and that
+        does NOT carry the opening block is a continuation page. Repeated column
+        headings are printed on every page of a long table; they are NOT a
+        document title and do NOT make a page a first page. Output "continue"
+        for such a page. 5. OTHER CONTINUATION EVIDENCE: A later page may also
+        show a form number only in the footer, a running balance or subtotal
+        carried forward, or a trailing signature/consent/certification section.
+        Output "continue" for such a page. CRITICAL - no preceding page shown:
+        If you are not shown the preceding page, do NOT conclude that this page
+        must be a first page. Pages are classified independently, so the absence
+        of a preceding page in your input tells you nothing about the document.
+        Judge only from this page's own evidence: a page that shows only table
+        rows, or is marked "Page 2 of 2", is a continuation page and must be
+        "continue" even when you cannot see page 1. CRITICAL - consecutive
+        documents of the same type: Output "start" whenever this page IS a first
+        page (it carries the opening block), even when the preceding page has
+        the same document type. Two copies of the same form filed back to back
+        are two separate documents, and the first page of the second copy must
+        be "start" so the two are not merged. PRECEDENCE: If the matched
+        document type's description in <document-types> gives explicit boundary
+        or page-ordering instructions (for example, how to handle pages scanned
+        out of order), follow those instructions instead of the general rules
+        above. If evidence is genuinely balanced, prefer "continue" for a page
+        that lacks the opening block, and prefer "start" for a page that carries
+        a complete opening block. </boundary-detection-rules>
+
+        <output-format> {
+          "classification_reason": "Detailed reasoning including specific visual and textual evidence that led to this classification, and which opening-block elements (title, issuer, addressee and address, date or period, account or reference number) this page does or does not carry",
+          "class": "exact_document_type_from_list",
+          "document_boundary": "start or continue"
+        } </output-format>
+
+        <<CACHEPOINT>>
+
+        <document-ocr-data> {DOCUMENT_TEXT} </document-ocr-data>
+
+        <final-instructions> Analyze the document above by: 1. Applying the
+        <classification-instructions> to examine both visual and textual
+        features 2. Selecting ONLY from document types in <document-types> 3.
+        Providing clear reasoning with specific evidence 4. Outputting in the
+        exact JSON format specified in <output-format> </final-instructions>
+    packet:
+      window_pages: '20'
+      overlap_pages: '2'
+      system_prompt: ''
+      task_prompt: ''
+    llm:
+      model: us.anthropic.claude-sonnet-4-6
+      model_lambda_hook_arn: null
+      temperature: '0.0'
+      top_p: '0.0'
+      top_k: '5.0'
+      reasoning_effort: medium
+      max_tokens: null
+      modality:
+        text: null
+        images: null
+      image:
+        target_width: null
+        target_height: null
+        dpi: null
+        preprocessing: null
+      validation:
+        enforceValidClasses: true
+        maxValidationRetries: '2'
+      confidence:
+        mode: topk
+        top_k_candidates: '3'
+        task_prompt_topk: >-
+          <class-confidence> Your JSON object MUST also contain a "candidates"
+          key: the {TOP_K_CANDIDATES} document types most likely to be correct
+          for this page, most likely first, each with the probability that it is
+          the correct type.
+
+          "candidates": [
+            {"class": "<most likely type>", "probability": <number between 0.0 and 1.0>},
+            {"class": "<next most likely type>", "probability": <number between 0.0 and 1.0>}
+          ]
+
+          Rules: 1. Every "class" value must be one of the types listed in
+          <document-types>. 2. The first candidate must be the same type you
+          report in "class". 3. The probabilities must not sum to more than 1.0.
+          Mass you leave unassigned means "possibly some other type". 4.
+          Distribute the probability honestly. If a second type is genuinely
+          plausible for this page, give it real probability mass instead of
+          assigning close to 1.0 to the first — a page that is hard to classify
+          should not look certain. </class-confidence>
+        task_prompt_verbalized: >-
+          <class-confidence> Your JSON object MUST also contain a "confidence"
+          key: the probability, as a number between 0.0 and 1.0, that the type
+          you report in "class" is correct for this page.
+
+          Base it on how much better the page matches the type you chose than
+          the other types in <document-types>. Do not default to a high value: a
+          page whose evidence is thin or ambiguous should carry a low
+          confidence. </class-confidence>
+        task_prompt_topk_packet: ''
+        task_prompt_verbalized_packet: ''
+  split_then_classify:
+    splitting:
+      method: llm
+      llm:
+        model: us.anthropic.claude-sonnet-4-6
+        model_lambda_hook_arn: null
+        temperature: '0.0'
+        top_p: '0.0'
+        top_k: '5.0'
+        reasoning_effort: medium
+        max_tokens: null
+        modality:
+          text: null
+          images: null
+        image:
+          target_width: null
+          target_height: null
+          dpi: null
+          preprocessing: null
+        granularity: page
+        page:
+          contextPagesCount: 0
+          system_prompt: ''
+          task_prompt: ''
+        packet:
+          window_pages: '20'
+          overlap_pages: '2'
+          system_prompt: ''
+          task_prompt: ''
+        boundary_hints: none
+      boundary_model:
+        backend: ''
+        endpoint: ''
+        input: images
+        timeout_ms: '30000'
+        max_concurrency: '4'
+        price_per_request: '0.0'
+    section_classification:
+      method: llm
+      pages: first_k
+      k: '2'
+      llm:
+        model: us.anthropic.claude-sonnet-4-6
+        model_lambda_hook_arn: null
+        temperature: '0.0'
+        top_p: '0.0'
+        top_k: '5.0'
+        reasoning_effort: medium
+        max_tokens: null
+        modality:
+          text: null
+          images: null
+        image:
+          target_width: null
+          target_height: null
+          dpi: null
+          preprocessing: null
+        validation:
+          enforceValidClasses: true
+          maxValidationRetries: '2'
+        confidence:
+          mode: topk
+          top_k_candidates: '3'
+          task_prompt_topk: >-
+            <class-confidence> Your JSON object MUST also contain a "candidates"
+            key: the {TOP_K_CANDIDATES} document types most likely to be correct
+            for this page, most likely first, each with the probability that it
+            is the correct type.
+
+            "candidates": [
+              {"class": "<most likely type>", "probability": <number between 0.0 and 1.0>},
+              {"class": "<next most likely type>", "probability": <number between 0.0 and 1.0>}
+            ]
+
+            Rules: 1. Every "class" value must be one of the types listed in
+            <document-types>. 2. The first candidate must be the same type you
+            report in "class". 3. The probabilities must not sum to more than
+            1.0. Mass you leave unassigned means "possibly some other type". 4.
+            Distribute the probability honestly. If a second type is genuinely
+            plausible for this page, give it real probability mass instead of
+            assigning close to 1.0 to the first — a page that is hard to
+            classify should not look certain. </class-confidence>
+          task_prompt_verbalized: >-
+            <class-confidence> Your JSON object MUST also contain a "confidence"
+            key: the probability, as a number between 0.0 and 1.0, that the type
+            you report in "class" is correct for this page.
+
+            Base it on how much better the page matches the type you chose than
+            the other types in <document-types>. Do not default to a high value:
+            a page whose evidence is thin or ambiguous should carry a low
+            confidence. </class-confidence>
+          task_prompt_topk_packet: ''
+          task_prompt_verbalized_packet: ''
+        system_prompt: ''
+        task_prompt: ''
+      embeddings:
+        model: ''
+        min_similarity: '0.0'
+      decision_model:
+        backend: ''
+        endpoint: ''
+        input: images
+        timeout_ms: '30000'
+        max_concurrency: '4'
+        price_per_request: '0.0'
+        label_map: {}
+        score_calibration: none
+      low_confidence:
+        min_confidence: '0.0'
+        on_low_confidence: fallback_class
+  document_shape:
+    sectionSplitting: disabled
+    maxPagesForClassification: ALL
+extraction:
+  postHook: []
+  context_buffer: '0.3'
+  model: us.anthropic.claude-sonnet-5
+  prompt_cache: auto
+  model_lambda_hook_arn: null
+  row_shortfall_action: warn
+  system_prompt: >-
+    You are a document assistant. Respond only with JSON. Never make up data,
+    only provide data found in the document being provided.
+  task_prompt: >-
+    <background> You are an expert in document analysis and information
+    extraction.  You can understand and extract key information from documents
+    classified as type: 
+
+    {DOCUMENT_CLASS}. </background>
+
+    <task> Your task is to take the unstructured text provided and convert it
+    into a well-organized table format using JSON. Identify the main entities,
+    attributes, or categories mentioned in the attributes list below and use
+    them as keys in the JSON object.  Then, extract the relevant information
+    from the text and populate the corresponding values in the JSON object.
+    </task>
+
+    <extraction-guidelines> Guidelines:
+        1. Ensure that the data is accurately represented and properly formatted within
+        the JSON structure
+        2. Include double quotes around all keys and values
+        3. Do not make up data - only extract information explicitly found in the
+        document
+        4. Do not use /n for new lines, use a space instead
+        5. If a field is not found or if unsure, return null
+        6. Format each value as directed by that attribute's description/format in the
+        attributes section below. If an attribute specifies a date or number format,
+        follow it EXACTLY; only if no format is specified, preserve the value as it
+        appears in the document.
+        7. Do not perform calculations or summations unless totals are explicitly given
+        8. If an alias is not found in the document, return null
+        9. Guidelines for checkboxes:
+         9.A. CAREFULLY examine each checkbox, radio button, and selection field:
+            - Look for marks like ✓, ✗, x, filled circles (●), darkened areas, or handwritten checks indicating selection
+            - For checkboxes and multi-select fields, ONLY INCLUDE options that show clear visual evidence of selection
+            - DO NOT list options that have no visible selection mark
+         9.B. For ambiguous or overlapping tick marks:
+            - If a mark overlaps between two or more checkboxes, determine which option contains the majority of the mark
+            - Consider a checkbox selected if the mark is primarily inside the check box or over the option text
+            - When a mark touches multiple options, analyze which option was most likely intended based on position and density. For handwritten checks, the mark typically flows from the selected checkbox outward.
+            - Carefully analyze visual cues and contextual hints. Think from a human perspective, anticipate natural tendencies, and apply thoughtful reasoning to make the best possible judgment.
+        10. Think step by step first and then answer.
+    </extraction-guidelines>
+
+    If the attributes section below contains a list of attribute names and
+    descriptions, then output only those attributes, using the provided
+    descriptions as guidance for finding the correct values. 
+
+    <attributes> {ATTRIBUTE_NAMES_AND_DESCRIPTIONS} </attributes>
+
+    <few-shot-examples> {FEW_SHOT_EXAMPLES} </few-shot-examples>
+
+    <<CACHEPOINT>>
+
+    <document-text> {DOCUMENT_TEXT} </document-text>
+
+    <final-instructions> Extract key information from the document and return a
+    JSON object with the following key steps: 1. Carefully analyze the document
+    text to identify the requested attributes 2. Extract only information
+    explicitly found in the document - never make up data 3. Format each value
+    as directed by its attribute description/format (follow any specified
+    date/number format EXACTLY; otherwise keep the document's rendering);
+    replace newlines with spaces 4. For checkboxes, only include options with
+    clear visual selection marks 5. Use null for any fields not found in the
+    document 6. Ensure the output is properly formatted JSON with quoted keys
+    and values 7. Think step by step before finalizing your answer
+    </final-instructions>
+  task_prompt_extraction_with_confidence: >-
+    <background> You are an expert in document analysis and information
+    extraction. You extract key information from documents classified as type:
+    {DOCUMENT_CLASS}, and you also report your confidence in each extracted
+    value. </background>
+
+    <task> Convert the unstructured document into a well-organized JSON object
+    using the attribute names below as keys, extracting the relevant values.
+    Then record your confidence in each extracted value. </task>
+
+    <extraction-guidelines> 1. Include double quotes around all keys and values
+    2. Do not make up data - only extract information explicitly found in the
+    document 3. Use a space instead of newlines 4. If a field is not found or
+    you are unsure, return null 5. Format each value as directed by that
+    attribute's description/format below.
+       If an attribute specifies a date or number format, follow it EXACTLY; only if
+       no format is specified, preserve the value as it appears in the document.
+    6. Do not perform calculations unless totals are explicitly given 7.
+    Carefully examine checkboxes/selection fields; only include options with
+    clear
+       visual selection marks
+    8. Think step by step first, then answer </extraction-guidelines>
+
+    <attributes> {ATTRIBUTE_NAMES_AND_DESCRIPTIONS} </attributes>
+
+    <few-shot-examples> {FEW_SHOT_EXAMPLES} </few-shot-examples>
+
+    <confidence-assessment> Record your confidence in EVERY extracted value,
+    mirroring the extraction structure EXACTLY so there is one confidence entry
+    per individual value. OUTPUT RULE (keep responses compact): include
+    "confidence_reason" for a leaf ONLY when its confidence is below 0.9. For
+    confidence >= 0.9, emit just {"confidence": <score>} with NO
+    confidence_reason. When you do include one, keep it to at most 12 words and
+    do not restate the extracted value. - Scalar field: {"confidence":
+    <0.0-1.0>} (add "confidence_reason" only if < 0.9). - Group (nested object)
+    field: an object with the SAME sub-keys as the value,
+      each mapping to its own {"confidence": ...} leaf (add "confidence_reason" if < 0.9).
+    - List field (e.g. a table): a LIST with ONE object per extracted row, in
+    the
+      SAME ORDER as the rows. Each row object MUST mirror that row's structure —
+      i.e. the SAME column keys as the extracted row, and EACH column maps to its
+      own {"confidence": ...} leaf (add "confidence_reason" only if < 0.9). Do NOT
+      emit a single confidence for a whole row; score each cell. Nested lists follow
+      the same rule recursively. Provide an entry for EVERY row and EVERY column —
+      do not summarize or skip.
+      Example — extracted row {"date": "...", "amount": "..."} ->
+        {"date": {"confidence": 0.98},
+         "amount": {"confidence": 0.72, "confidence_reason": "figure partly illegible"}}
+    confidence = your calibrated certainty the value matches the source document
+    (1.0 = certain, lower = ambiguous/illegible/inferred). HOW TO REPORT IT: -
+    If an extraction_with_confidence or provide_field_assessment TOOL is
+    available
+      to you, use it: pass the extracted values and this field_assessment together in
+      that ONE tool call. If you extracted in multiple steps (e.g. adding rows via
+      patches), call it once at the very end so every row is assessed.
+    - Otherwise (no such tool), return ONE JSON object with EXACTLY two
+    top-level
+      keys: "extraction" (the extracted values object described above) and
+      "confidence" (the parallel confidence structure). Do NOT wrap it in any other
+      key and do NOT add a "field_assessment" key. Shape:
+        {"extraction": { ...extracted values... },
+         "confidence":  { ...one confidence leaf per value, mirroring structure... }}
+    Do NOT include bounding boxes unless explicitly instructed below — field
+    locations are derived automatically from OCR. </confidence-assessment>
+
+    <<CACHEPOINT>>
+
+    <document-text> {DOCUMENT_TEXT} </document-text>
+  task_prompt_extraction_with_confidence_topk: >-
+    <background> You are an expert in document analysis and information
+    extraction. You can understand and extract key information from documents
+    classified as type: {DOCUMENT_CLASS}. </background> <task> Provide your 4
+    best guesses and the probability that each is correct (0.0 to 1.0) for each
+    attribute listed below. Give ONLY the guesses and probabilities, no other
+    words or explanation.</task> <extraction-guidelines> Guidelines:
+     1. Only consider values that are present in the provided document. Do not invent attribute values.
+     2. Extract each entity candidate exactly how it is presented in the document. E.g. do not change "M" to "Monday"
+     or change the date from "01/04" to "1/04".
+     3. Format each value as directed by that attribute's description/format below.
+       If an attribute specifies a date or number format, follow it EXACTLY; only if
+       no format is specified, preserve the value as it appears in the document.
+     4. For each extracted attribute key, the value MUST be a nested object formatted
+     exactly like this:
+            {
+              "G1": "<1st most likely guess, copied EXACTLY as it appears in the document>",
+              "P1": <probability between 0.0 and 1.0>,
+              "G2": "<2nd most likely guess>",
+              "P2": <probability between 0.0 and 1.0>,
+              "G3": "<3rd most likely guess>",
+              "P3": <probability between 0.0 and 1.0>,
+              "G4": "<4th most likely guess>",
+              "P4": <probability between 0.0 and 1.0>
+            }
+    </extraction-guidelines> If the attributes section below contains a list of
+    attribute names and descriptions, then output only those attributes, using
+    the provided descriptions as guidance for finding the correct values.
+    <attributes> {ATTRIBUTE_NAMES_AND_DESCRIPTIONS} </attributes>
+    <few-shot-examples> {FEW_SHOT_EXAMPLES} </few-shot-examples> <<CACHEPOINT>>
+    <document-text> {DOCUMENT_TEXT} </document-text> <output-format> Give ONLY
+    the JSON object containing the guesses and probabilities. Do not think
+    step-by-step, do not show your work, and do not provide any reasoning,
+    justifications, or extra commentary whatsoever.
+
+    For SIMPLE attributes: {
+      "simple_attribute_name": {
+        "G1": "<1st most likely guess, copied EXACTLY as it appears in the document>",
+        "P1": <probability between 0.0 and 1.0>,
+        "G2": "<2nd most likely guess>",
+        "P2": <probability between 0.0 and 1.0>,
+        "G3": "<3rd most likely guess>",
+        "P3": <probability between 0.0 and 1.0>,
+        "G4": "<4th most likely guess>",
+        "P4": <probability between 0.0 and 1.0>
+      }
+    }
+
+    For LIST attributes, give G1/P1 ONLY (a single guess per cell) and include
+    EVERY row that appears in the document. Completeness of the list matters
+    more than alternative guesses, and extra guesses per cell multiply the
+    output length by the number of rows: {
+      "list_attribute_name": [
+        {
+          "item_attribute_1": { "G1": "<guess, copied EXACTLY as it appears in the document>", "P1": <probability between 0.0 and 1.0> },
+          "item_attribute_2": { "G1": "<guess, copied EXACTLY as it appears in the document>", "P1": <probability between 0.0 and 1.0> }
+        }
+      ]
+    } For GROUP attributes (a nested object), give one candidate object per
+    sub-attribute: {
+      "group_attribute_name": {
+        "sub_attribute_1": {
+          "G1": "<1st most likely guess, copied EXACTLY as it appears in the document>",
+          "P1": <probability between 0.0 and 1.0>,
+          "G2": "<2nd most likely guess>",
+          "P2": <probability between 0.0 and 1.0>
+        },
+        "sub_attribute_2": {
+          "G1": "<1st most likely guess, copied EXACTLY as it appears in the document>",
+          "P1": <probability between 0.0 and 1.0>
+        }
+      }
+    } </output-format>
+  temperature: '0.0'
+  top_p: '0.0'
+  top_k: '5.0'
+  reasoning_effort: low
+  image:
+    target_width: null
+    target_height: null
+    dpi: null
+    preprocessing: null
+  mode: simple
+  agentic:
+    enabled: false
+    integrated_confidence_strategy: two_step
+    restate_schema_in_system_prompt: true
+    review_agent: false
+    review_agent_model: us.anthropic.claude-sonnet-5
+    max_concurrent_batches: '10'
+    shard_token_budget: 0
+    max_pages_per_shard: '5'
+    max_images_per_agent: '20'
+    table_parsing:
+      enabled: true
+      min_confidence_threshold: '95.0'
+      min_parse_success_rate: '0.9'
+      use_confidence_data: true
+      max_empty_line_gap: '3'
+      auto_merge_adjacent_tables: true
+      lazy_images: true
+    runtime: step_functions
+  confidence:
+    mode: separate
+    enabled: true
+    model: us.amazon.nova-lite-v1:0
+    model_lambda_hook_arn: null
+    system_prompt: >-
+      You are a document analysis assessment expert. Your role is to evaluate
+      the confidence and accuracy of data extraction results by analyzing them
+      against source documents. Provide accurate confidence scores for each
+      assessment. When bounding boxes are requested, provide precise coordinate
+      locations where information appears in the document.
+    task_prompt: >-
+      <background> You are an expert document analysis assessment system. Your
+      task is to evaluate the confidence of extraction results for a document of
+      class {DOCUMENT_CLASS}. </background> <task> Analyze the extraction
+      results against the source document and provide a confidence assessment
+      for each extracted attribute. Consider factors such as: 1. Text clarity
+      and OCR quality in the source regions 2. Alignment between extracted
+      values and document content 3. Presence of clear evidence supporting the
+      extraction 4. Potential ambiguity or uncertainty in the source material 5.
+      Completeness and accuracy of the extracted information </task>
+      <assessment-guidelines> For each attribute, provide: - A confidence score
+      between 0.0 and 1.0 (1.0 = clear, unambiguous evidence;
+        lower = weaker/ambiguous evidence)
+      - A confidence_reason ONLY when the confidence is below 0.9 (see the
+      output
+        rule below). Reasons exist to explain low/uncertain scores for human review;
+        a high-confidence value does not need one.
+      Base assessments on actual document content and OCR quality; account for
+      OCR confidence scores when provided; be objective and specific.
+      </assessment-guidelines> <final-instructions> Return a JSON object
+      mirroring the extracted data structure: HIGH confidence (>= 0.9): 
+      {"attr": {"confidence": 0.97}} LOWER confidence (< 0.9):  {"attr":
+      {"confidence": 0.72, "confidence_reason": "..."}} GROUP:   {"grp":
+      {"sub1": {"confidence": 0.95}}} LIST:    {"items": [ {"c1": {"confidence":
+      0.72, "confidence_reason": "..."}}, ... ]} OUTPUT RULE (keep responses
+      compact — omit reasons for confident values): - Emit "confidence_reason"
+      for a leaf ONLY when its confidence is below 0.9.
+        For confidence >= 0.9, emit just {"confidence": <score>} with NO
+        confidence_reason key.
+      - When you do include a confidence_reason, keep it to at most 12 words and
+      do
+        not restate the extracted value.
+      IMPORTANT: - For LIST attributes, assess EACH row separately (one object
+      per row, in order),
+        and within each row give EACH column its own confidence leaf ({"confidence"},
+        plus "confidence_reason" only when below 0.9) — mirror the row's column keys;
+        do NOT emit a single confidence per row. Nested lists follow the same rule
+        recursively.
+      - Include a confidence assessment for ALL attributes present in the
+      extraction results - Match the exact structure of the extracted data
+      </final-instructions> <<CACHEPOINT>> <ocr-text-confidence-results>
+      {OCR_TEXT_CONFIDENCE} </ocr-text-confidence-results> <<CACHEPOINT>>
+      <attributes-definitions> {ATTRIBUTE_NAMES_AND_DESCRIPTIONS}
+      </attributes-definitions> <extraction-results> {EXTRACTION_RESULTS}
+      </extraction-results>
+    temperature: '0.0'
+    top_p: '0.0'
+    top_k: '5.0'
+    reasoning_effort: medium
+    list_batch_size: '25'
+    escalation_enabled: true
+    escalation_model: us.anthropic.claude-sonnet-5:1m
+    max_escalation_rounds: '2'
+    image:
+      target_width: null
+      target_height: null
+      dpi: null
+      preprocessing: null
+  geometry:
+    mode: ocr_only
+    task_prompt_bbox: >-
+      <spatial-localization-guidelines> Additionally, for each field provide
+      bounding box coordinates alongside its confidence: - bbox: [x1, y1, x2,
+      y2] in a normalized 0-1000 scale - page: page number where the field
+      appears (starting from 1) Use x1,y1 = top-left and x2,y2 = bottom-right
+      (ensure x2 > x1, y2 > y1). Make boxes tight around the actual text; if a
+      field spans multiple lines, encompass all relevant text. Include bbox/page
+      in the JSON alongside each field's confidence.
+      </spatial-localization-guidelines>
+  forced_tool:
+    enabled: false
+    fallback_to_prompt: true
+  multi_instance_detection:
+    enabled: false
+    question: >-
+      DIAGNOSTIC METADATA, not extracted document data. How many separate,
+      complete '{DOCUMENT_CLASS}' documents are present in the supplied pages?
+      Answer 1 for the normal case of one document. Answer more than 1 only when
+      the pages clearly contain several distinct documents of this same type —
+      for example statements covering different periods, or records for
+      different people — including when a document starts part-way down a page.
+      Do not count pages, sections or repeated headers: count complete
+      documents. Extract all other fields exactly as you otherwise would.
+  coercion:
+    enabled: true
+    date_order: auto
+  validation:
+    enabled: true
+    check_formats: true
+    fail_action: warn
+    escalation_model: us.anthropic.claude-sonnet-5:1m
+    min_population_ratio: '0.5'
+  missing_field_handling:
+    enabled: false
+    representation: omit
+  custom_prompt_lambda_arn: null
+hitl:
+  enabled: true
+  confidence_threshold: '0.5'
+  notifications:
+    retention_days: '30'
+    max_per_user: '50'
+summarization:
+  postHook: []
+  enabled: true
+  model: us.anthropic.claude-sonnet-5:1m
+  model_lambda_hook_arn: null
+  system_prompt: >-
+    You are a bank customer-care operations analyst. You review a customer's
+    request to update personal details on their account (name, address, phone
+    number) together with any proof documents enclosed, and produce a concise
+    case summary for a care-team agent. Never invent data: use only the document
+    text and the extracted attributes. Your output MUST be valid JSON with
+    markdown content.
+  task_prompt: >-
+    <document-text> {DOCUMENT_TEXT} </document-text>
+
+    <extracted-attributes> {EXTRACTION_RESULTS} </extracted-attributes>
+
+    The package may contain a Customer-Change-Request letter and one or more
+    proof documents (Marriage-Certificate, Divorce-Decree,
+    Name-Change-Court-Order, Certificate-of-Naturalization).
+
+    Produce a care-team case summary:
+
+    1. **Change type**: state exactly one of: NAME CHANGE ONLY, ADDRESS CHANGE
+    ONLY, PHONE CHANGE ONLY, NAME + ADDRESS, NAME + PHONE, ADDRESS + PHONE, NAME
+    + ADDRESS + PHONE, or NO CHANGE IDENTIFIED. Base it on what the customer
+    explicitly asks for. An address that only appears in the sign-off is NOT an
+    address change request.
+
+    2. **Requested changes table**: one row per change: Field | Current value |
+    New value | Source.
+
+    3. **Supporting evidence**: for each proof document give its type, key
+    identifiers (case/registration/certificate number, dates) and the names it
+    shows.
+
+    4. **Verification checks** (mark each PASS / FAIL / NOT POSSIBLE with
+    one-line reason):
+       - The new name requested matches the new/restored/declared name on the proof document.
+       - The current name on the account matches the former/original name on the proof document.
+       - The proof document type fits the stated reason (e.g. marriage → marriage certificate).
+       - A proof document is present for every name change (address and phone changes do not need one unless your policy requires it).
+       - Any address on the proof document is consistent with the address the customer provided.
+    5. **Flags for review**: list any discrepancies, missing proof, illegible
+    fields or unusual details (e.g. ZIP code that does not match the state). If
+    none, say "None".
+
+    6. **Actions for the care-team agent**: a numbered checklist of exactly what
+    to update in the customer record, one step per change, e.g.
+       - "Update account name from <current> to <new>"
+       - "Update mailing address from <current> to <new>"
+       - "Update phone number from <current> to <new>"
+       - "Record proof document: <type>, <case/registration/certificate number>"
+       - "Send confirmation to the customer at <contact address>"
+       Include only steps supported by the documents. If information is missing, add a step to contact the customer for it.
+    7. **Recommended action**: PROCEED, PROCEED AFTER REVIEW, or REQUEST MORE
+    INFORMATION, with a one-sentence reason.
+
+    Cite facts inline as [[Cite-X, Page-Y]](#cite-X-page-Y) and end with a
+    References section quoting the source text.
+
+    You MUST return ONLY valid JSON:
+
+    ```json {"summary": "<markdown summary as described above>"} ```
+  temperature: '0.0'
+  top_p: '0.0'
+  top_k: '5.0'
+  reasoning_effort: medium
+  max_tokens: null
+  max_extraction_array_items: '50'
+chat:
+  enabled: true
+  model: us.anthropic.claude-opus-4-8:1m
+  model_lambda_hook_arn: null
+  system_prompt: >-
+    You are an assistant that answers questions about the attached document
+    text. If you don't know the answer, say so. Do not invent information. Use
+    the prior chat history provided as context. Respond in plain text, not JSON.
+  temperature: '0.0'
+  top_p: '0.1'
+  top_k: '5.0'
+  max_tokens: null
+  reasoning_effort: medium
+rule_validation:
+  enabled: false
+  semaphore: '5'
+  max_chunk_size: '8000'
+  token_size: '4'
+  overlap_percentage: '10'
+  response_prefix: <response>
+  recommendation_options: |-
+    Pass: The requirement criteria are fully met.
+    Fail: The requirement is partially met or requires additional information.
+    Information Not Found: No relevant data exists in the document content.
+  extraction_results: null
+  fact_extraction:
+    model: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+    system_prompt: >-
+      You are a Document Fact Extraction Specialist responsible for identifying
+      and extracting factual evidence that is relevant to rule validation.
+
+
+      ## Your Role
+
+      Your sole task is to extract facts and evidence that can be used to
+      validate compliance with a specific rule. You do NOT make compliance
+      decisions - you only gather and cite relevant factual evidence.
+
+
+      ## Variables
+
+      - <rule>: The compliance rule or requirement that facts should be
+      extracted for
+
+      - <document-text>: The source document content to extract facts from
+
+      - <extracted-attributes>: Pre-extracted attributes that may contain
+      relevant facts
+
+
+      ## Guidelines
+
+      1. Extract facts that are directly relevant to validating the specified
+      rule
+
+      2. Facts can be extracted from BOTH <document-text> AND
+      <extracted-attributes>
+
+      3. Each fact must include page number(s) indicating where the fact was
+      found
+
+      4. Remain objective - extract facts that both support and contradict the
+      rule
+
+      5. Do not interpret or make judgments about compliance
+
+      6. Never fabricate or assume facts not present in the provided sources
+    task_prompt: >-
+      Extract relevant facts and evidence that can be used to validate the rule
+      provided.
+
+
+      <extracted-attributes>
+
+      {EXTRACTION_RESULTS}
+
+      </extracted-attributes>
+
+
+      <instructions>
+
+      Follow these steps to extract relevant facts:
+
+
+      STEP 1 - ANALYZE THE RULE
+
+      Review the rule provided in <rule></rule> tags to understand:
+
+      - What specific criteria or conditions need to be validated
+
+      - What type of evidence would be relevant (dates, amounts, names,
+      conditions, etc.)
+
+      - What key terms or concepts to search for
+
+
+      STEP 2 - SEARCH FOR EVIDENCE
+
+      Review BOTH sources for relevant facts:
+
+
+      From <document-text></document-text>:
+
+      - Statements, data, or information that relate to the rule criteria
+
+      - Specific values, dates, identifiers, or conditions mentioned
+
+      - Any context that clarifies or qualifies the relevant information
+
+
+      From <extracted-attributes></extracted-attributes>:
+
+      - Pre-extracted values that are relevant to the rule
+
+      - Structured data that can support rule validation
+
+      - Any attributes with associated page references
+
+
+      STEP 3 - EXTRACT FACTS WITH CITATIONS
+
+      For each relevant piece of evidence found:
+
+      - Extract the factual information verbatim or accurately paraphrased
+
+      - Record the page number(s) from which the fact was extracted
+
+      - Note the relevance to the specific rule being validated
+
+
+      STEP 4 - COMPILE STRUCTURED OUTPUT
+
+      Format all extracted facts as a structured JSON response.
+
+
+      JSON RESPONSE FORMAT:
+
+      {{
+        "extracted_facts": [
+          {{
+            "fact": "The specific factual information extracted",
+            "citation": "Page number(s) from which this fact is extracted",
+            "relevance": "Brief explanation of how this fact relates to the rule"
+          }}
+        ],
+        "extraction_summary": "Brief summary of what evidence was found and any gaps identified"
+      }}
+
+
+      IMPORTANT RULES:
+
+      - Include ALL relevant facts from both sources, even if they contradict
+      each other
+
+      - Each fact must have a valid citation with page number(s)
+
+      - Do not include compliance decisions or recommendations
+
+      - If no relevant facts are found, return empty array and note this in the
+      summary
+
+      - Ensure output is valid JSON
+
+      </instructions>
+
+
+      <<CACHEPOINT>>
+
+
+      <document-text>
+
+      {DOCUMENT_TEXT}
+
+      </document-text>
+
+
+      <rule>
+
+      {rule}
+
+      </rule>
+
+
+      CRITICAL: Respond ONLY with the JSON format inside <response></response>
+      XML tags.
+
+      Do not include any explanatory text, commentary, or additional text before
+      or after the <response> tags.
+
+      Your entire response must contain only the <response> tags with the JSON
+      inside.
+    temperature: '0.0'
+    top_p: '0.0'
+    top_k: '20.0'
+    max_tokens: null
+  rule_validation_orchestrator:
+    model: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+    system_prompt: >-
+      You are a Compliance Validation Specialist responsible for analyzing
+      extracted evidence and making final compliance determinations.
+
+
+      ## Your Role
+
+      Your task is to review facts and evidence extracted from documents,
+      analyze their relevance and completeness, and make a definitive compliance
+      recommendation for a given rule.
+
+
+      ## Variables
+
+      - <rule>: The compliance rule or requirement being validated
+
+      - <extracted_evidence>: Facts and citations extracted from the document by
+      the fact extraction step
+
+      - <recommendation_options>: Available compliance decision options to
+      choose from
+
+      - <policy_class>: The category or classification of the policy being
+      validated
+
+
+      ## Guidelines
+
+      1. Base decisions strictly on the extracted evidence provided
+
+      2. Consider all facts, including contradictory evidence
+
+      3. Select the most appropriate recommendation from the provided options
+
+      4. Provide clear reasoning with specific citations from the extracted
+      evidence
+
+      5. If evidence is insufficient, clearly state what is missing
+
+      6. Keep reasoning concise, factual, and in a single paragraph
+
+      7. Never introduce assumptions or facts not present in the extracted
+      evidence
+    task_prompt: >-
+      Analyze the extracted evidence and determine compliance with the specified
+      rule.
+
+
+      <instructions>
+
+      Follow these steps to make a compliance determination:
+
+
+      STEP 1 - REVIEW EXTRACTED EVIDENCE
+
+      Examine all facts provided in <extracted_evidence></extracted_evidence>
+      tags:
+
+      - Identify key facts relevant to the rule criteria
+
+      - Note the citations and source pages for each fact
+
+      - Identify any contradictory or conflicting evidence
+
+
+      STEP 2 - ASSESS EVIDENCE COMPLETENESS
+
+      Determine if the extracted evidence is sufficient to validate the rule:
+
+      - Does the evidence directly address the rule requirements?
+
+      - Are there gaps in the evidence that prevent a conclusive determination?
+
+      - Is the evidence consistent or are there conflicts to resolve?
+
+
+      STEP 3 - EVALUATE AGAINST RULE CRITERIA
+
+      Compare the extracted evidence against the rule in <rule></rule> tags:
+
+      - Determine if evidence supports compliance with the rule
+
+      - Determine if evidence indicates non-compliance
+
+      - Determine if evidence is insufficient for a conclusion
+
+
+      STEP 4 - SELECT RECOMMENDATION
+
+      Based on your evaluation, select ONE option from
+      <recommendation_options></recommendation_options>:
+
+      - Review all available options provided in the recommendation_options
+
+      - Select the option that best matches your evidence-based conclusion
+
+      - Consider whether evidence supports compliance, indicates non-compliance,
+      or is insufficient
+
+      - Match your determination to the most appropriate option from those
+      provided
+
+
+      STEP 5 - FORMULATE REASONING
+
+      Construct a concise reasoning statement that:
+
+      - Summarizes the key evidence supporting the decision
+
+      - Includes specific page citations from the extracted evidence
+
+      - Explains why this evidence leads to the chosen recommendation
+
+      - Notes any evidence gaps if applicable
+
+
+      JSON RESPONSE FORMAT:
+
+      {{
+        "recommendation": "Select one keyword option from <recommendation_options>. Return ONLY the keyword (e.g., first word or phrase before any separator)",
+        "reasoning": "Concise summary of extracted evidence supporting the decision with specific page citations in a single paragraph without line breaks",
+        "supporting_pages": ["consolidated list of page numbers containing relevant evidence"]
+      }}
+
+
+      SUPPORTING PAGES RULES:
+
+      1. Include ONLY page numbers from the extracted evidence that support the
+      decision
+
+      2. If no evidence exists, supporting_pages should be an empty list []
+
+      3. For non-compliance recommendations, include pages reviewed that contain
+      evidence of non-compliance
+
+      4. Consolidate all unique page numbers from the extracted evidence
+
+
+      RESPONSE RULES:
+
+      1. Provide exactly ONE compliance determination
+
+      2. Use only basic punctuation (. , : ;) in reasoning
+
+      3. Avoid special characters or line breaks in reasoning
+
+      4. All JSON fields must be included
+
+      5. For non-compliance or partial findings, explicitly state what evidence
+      was missing or insufficient
+
+      </instructions>
+
+
+      <<CACHEPOINT>>
+
+
+      <extracted_evidence>
+
+      {extracted_evidence}
+
+      </extracted_evidence>
+
+
+      <recommendation_options>
+
+      {recommendation_options}
+
+      </recommendation_options>
+
+
+      <policy_class>{policy_class}</policy_class>
+
+
+      <rule>{rule}</rule>
+
+
+      CRITICAL: Respond ONLY with the JSON format inside <response></response>
+      XML tags.
+
+      Do not include any explanatory text, commentary, or additional text before
+      or after the <response> tags.
+
+      Your entire response must contain only the <response> tags with the JSON
+      inside.
+    temperature: '0.0'
+    top_p: '0.0'
+    top_k: '20.0'
+    max_tokens: null
+  postHook: []
+  z3_rule_translator: null
+  z3_value_extraction: null
+  z3_timeout_ms: '5000'
+agents:
+  error_analyzer:
+    model_id: us.anthropic.claude-sonnet-4-6
+    lookback_hours: '24'
+    error_patterns:
+      - ERROR
+      - CRITICAL
+      - FATAL
+      - Exception
+      - Traceback
+      - Failed
+      - Timeout
+      - AccessDenied
+      - ThrottlingException
+    system_prompt: >-
+      You are an intelligent error analysis agent for the GenAI IDP (Intelligent
+      Document Processing) system with access to specialized diagnostic tools.
+
+
+      SYSTEM ARCHITECTURE:
+
+      The GenAI IDP system processes documents through an AWS Step Functions
+      state machine with the following pipeline stages:
+
+      - OCR Stage: Extracts text/layout from documents using Amazon Textract or
+      Amazon Bedrock Data Automation (BDA)
+
+      - Classification Stage: Identifies the document class using a Bedrock LLM
+
+      - Extraction Stage: Extracts structured fields using a Bedrock LLM based
+      on class-specific configuration
+
+      - Assessment Stage: Evaluates extraction quality using a Bedrock LLM
+
+      - Summarization Stage (optional): Generates a document summary
+
+      - Evaluation Stage (optional): Scores extraction accuracy against ground
+      truth
+
+
+      BDA Alternative Branch:
+
+      - InvokeBDA → BDA Completion (EventBridge-triggered) → BDA ProcessResults
+
+      - BDA jobs are asynchronous; failures may appear in EventBridge delivery
+      or the BDA service itself
+
+
+      Key AWS services involved:
+
+      - AWS Step Functions: Orchestrates the pipeline workflow
+
+      - AWS Lambda: Executes each stage as an independent function
+
+      - Amazon DynamoDB: Tracks document status and metadata per stage
+
+      - Amazon CloudWatch: Captures logs from each Lambda function
+
+      - AWS X-Ray: Provides distributed tracing across Lambda and Bedrock calls
+
+      - Amazon Bedrock: Provides LLM inference for classification, extraction,
+      assessment, and summarization
+
+      - Amazon Textract: Performs OCR for non-BDA documents
+
+      - Amazon S3: Stores input documents, OCR results, and extracted output
+
+
+      INVESTIGATION WORKFLOW:
+
+      1. Identify the document status in DynamoDB to understand which pipeline
+      stage failed
+
+      2. Retrieve Step Functions execution details to get the execution timeline
+      and error event
+
+      3. Collect CloudWatch logs from the failing Lambda stage for detailed
+      error messages
+
+      4. Use X-Ray traces to identify performance bottlenecks or cascading
+      failures across services
+
+      5. Synthesize all evidence to determine root cause — never stop at the
+      first error message
+
+
+      TOOL USAGE:
+
+      - Document-specific analysis (user provides a filename or document ID):
+        → Use cloudwatch_document_logs and dynamodb_status as primary tools
+      - System-wide or batch analysis (no specific document):
+        → Use cloudwatch_logs and dynamodb_query to identify patterns
+      - Workflow failures and execution timeline:
+        → Use stepfunction_details for the execution event history
+      - Lambda configuration and environment context:
+        → Use lambda_lookup to check timeout settings, memory, and environment variables
+      - Which Bedrock model a pipeline stage uses (e.g. after a model error):
+        → Use fetch_pipeline_configuration with the document's config version to read the per-stage model IDs
+      - Distributed service interaction issues:
+        → Use xray_trace or xray_performance_analysis
+
+      Always use at least 2 different tool sources before concluding a root
+      cause. If a tool call returns no useful data, try an alternative — never
+      guess without evidence.
+
+
+      CRITICAL — DRILL INTO THE FAILING STAGE'S OWN LOGS:
+
+      The Step Functions error and the DynamoDB status_reason usually show a
+
+      GENERIC WRAPPER message (e.g. "Summarization failed for document X.pdf",
+
+      "Extraction failed"), because each stage Lambda catches the underlying
+
+      exception and re-raises a stage-level summary. That wrapper is a SYMPTOM,
+
+      not the root cause. You MUST fetch the CloudWatch logs of the specific
+
+      Lambda function for the failing stage and read the FIRST underlying
+
+      exception/traceback it logged (e.g. a Bedrock ResourceNotFoundException,
+
+      ThrottlingException, ValidationException, or a Python traceback). Search
+
+      that stage's log group by the failing Lambda's request ID (from the
+
+      Step Functions error cause or the X-Ray trace) with an "ERROR" filter, and
+
+      quote the earliest real error — not the last wrapper line. If the wrapper
+
+      message names a stage, the log group you need is that stage's function
+
+      (e.g. SummarizationFunction, ExtractionFunction, AssessmentFunction).
+
+
+      DO NOT CONFLATE UNRELATED NON-FATAL ISSUES WITH THE FAILURE:
+
+      A document's DynamoDB record may carry `ProcessingIssue` entries with
+
+      severity "warning" or non-terminal notes (e.g. an `assessment_incomplete`
+
+      row that self-healed or was recorded but did not stop the pipeline). These
+
+      are NOT necessarily the cause of a FAILED workflow. Before attributing the
+
+      failure to a ProcessingIssue, confirm it occurred in the SAME stage that
+
+      Step Functions reports as the failure point AND that its severity is
+
+      "error". If the failing stage differs from the stage that logged the
+
+      ProcessingIssue, treat the ProcessingIssue as context, not root cause, and
+
+      keep drilling into the failing stage's logs.
+
+
+      INVESTIGATION STRATEGY:
+
+      Use this approach for all investigations, whether a single document or a
+      large batch:
+
+
+      1. TRIAGE: Check DynamoDB for document status and which stage failed. For
+      batches, get a count of failed documents and their error status
+      distribution.
+
+
+      2. SAMPLE: For multiple failures, select 2-3 representative failed
+      documents. Avoid over-sampling — additional documents yield diminishing
+      returns.
+
+
+      3. TRACE THE CAUSAL CHAIN for each sampled document:
+         DynamoDB status → Step Functions execution timeline → CloudWatch error logs → X-Ray traces
+
+      4. APPLY THE "5 WHYS" — Never stop at the first error. Keep asking "what
+      caused THIS?":
+         Finding: "Extraction Lambda timed out" → Why?
+         "Lambda waited 14 minutes on Bedrock InvokeModel" → Why was it slow?
+         "Bedrock returned ThrottlingException, triggering exponential backoff" → Why throttled?
+         "Batch of 200 docs with extraction concurrency=10 exceeded Bedrock RPM quota"
+         ROOT CAUSE: "Extraction concurrency too high for the configured Bedrock account quota"
+
+      5. DISTINGUISH SYSTEMIC vs ISOLATED FAILURES:
+         - Same error type across many documents → systemic issue (quota, permissions, configuration, service limit)
+         - Different errors across documents → per-document issues (bad input, edge cases, unsupported format)
+
+      6. VALIDATE: Does the identified root cause explain ALL observed failures?
+
+
+      ROOT CAUSE vs SYMPTOM GUIDE:
+
+      - SYMPTOM: "Document processing failed"
+
+      - SYMPTOM: "Extraction Lambda returned error"
+
+      - CLOSER:  "ThrottlingException from Bedrock InvokeModel"
+
+      - ROOT CAUSE: "Bedrock RPM quota exceeded — batch concurrency generated
+      too many concurrent API calls"
+
+
+      - SYMPTOM: "Classification failed"
+
+      - CLOSER:  "Textract API timeout"
+
+      - ROOT CAUSE: "150-page PDF exceeded Textract async processing limit for
+      the configured region"
+
+
+      COMMON ERROR PATTERNS:
+
+      Use these patterns to guide your investigation and accelerate diagnosis:
+
+
+      1. THROTTLING — ThrottlingException, TooManyRequestsException, "Rate
+      exceeded", "Too many requests"
+         Likely cause: Batch size × concurrency > Bedrock RPM/TPM quota, or Textract TPS limit exceeded
+         Check: Concurrent Lambda executions, batch size, Bedrock model quotas
+
+      2. TIMEOUT — "Task timed out", "Lambda timeout", "socket timeout",
+      "Connection reset"
+         Likely cause: Large document (many pages), undersized Lambda timeout or memory, slow Bedrock inference
+         Check: Document page count, Lambda timeout configuration, model response latency in X-Ray
+
+      3. CONFIGURATION ERROR — KeyError, missing field, "not found in config",
+      validation error, AttributeError
+         Likely cause: Class definition or attribute names in config don't match expected schema; config changes deployed incorrectly
+         Check: DynamoDB config table, class definitions, attribute names for the affected document class
+
+      4. PERMISSIONS — AccessDeniedException, "not authorized", "is not
+      authorized to perform", ExpiredToken
+         Likely cause: Missing IAM policy, cross-account access issue, Bedrock model access not granted, KMS policy gap
+         Check: Lambda execution role policies, Bedrock model access in the console, S3 bucket policies
+
+      5. INPUT QUALITY — empty extraction results, very low confidence, "unable
+      to parse", Textract errors on specific pages
+         Likely cause: Poor scan quality, handwritten content, unsupported file format, corrupted PDF
+         Check: OCR output in S3, original document quality, Textract response for page-level errors
+
+      6. BDA-SPECIFIC — "BDA Job Failed", blueprint mismatch, async job timeout,
+      missing EventBridge event
+         Likely cause: Blueprint schema mismatch with document type, BDA service limit, EventBridge delivery failure
+         Check: BDA project configuration, blueprint compatibility, EventBridge rule and DLQ
+
+      7. BEDROCK MODEL ERRORS — ModelErrorException, "model returned an error",
+      context length exceeded
+         Likely cause: Document content too large for model context window, model unavailable in region, prompt issue
+         Check: Document page count, OCR text length, model availability, extraction prompt configuration
+
+      8. RETIRED / UNAVAILABLE MODEL — ResourceNotFoundException, "This model
+      version has reached the end of its life", "model identifier is invalid",
+      "could not be found"
+         Likely cause: The model ID configured for a stage (OCR/classification/extraction/assessment/summarization) has been retired (end-of-life) by Bedrock, or is not enabled/available in this account/region
+         Check: The Bedrock error does NOT name the model. To identify it, call fetch_pipeline_configuration with the document's config version (the ConfigVersion field from fetch_document_record) and read the model configured for the FAILING stage (match the stage to the failing Lambda — e.g. the "summarization" stage for SummarizationFunction). Name that exact model ID as the root cause and recommend switching that stage to a currently-supported model in the UI Configuration panel — do NOT just tell the user to "confirm the configured model".
+
+      OUTPUT FORMAT:
+
+      Always format your response with exactly these three sections in this
+      order:
+
+
+      ## Root Cause
+
+      **Confidence:** [HIGH | MEDIUM | LOW]
+
+      Identify the specific underlying technical reason why the error occurred.
+      Focus on the primary cause, not symptoms.
+
+
+      ## Recommendations
+
+      Provide specific, actionable steps to resolve the issue. Limit to top
+      three recommendations only.
+
+
+      <details>
+
+      <summary><strong>Evidence</strong></summary>
+
+
+      Format evidence with source information. Include relevant data from tool
+      responses:
+
+
+      **For CloudWatch logs:**
+
+      **Log Group:** [full log_group name]
+
+      **Log Stream:** [full log_stream name]
+
+      ```
+
+      [ERROR] timestamp message
+
+      ```
+
+
+      **For other sources (DynamoDB, Step Functions, X-Ray):**
+
+      **Source:** [service name and resource]
+
+      ```
+
+      Relevant data from tool response
+
+      ```
+
+
+      </details>
+
+
+      FORMATTING RULES:
+
+      - Use the exact three-section structure above
+
+      - Add Confidence (HIGH/MEDIUM/LOW) as the first line of the Root Cause
+      section
+
+      - Make the Evidence section collapsible using HTML details tags
+
+      - Include relevant data from all tool responses used
+
+      - For CloudWatch: Show complete log group and log stream names without
+      truncation
+
+      - Present evidence data in code blocks with appropriate source labels
+
+
+      RECOMMENDATION GUIDELINES:
+
+      For code-related issues or system bugs:
+
+      - Do not suggest code modifications — users cannot change Lambda code
+
+      - Describe the error in detail with timestamps and context so it can be
+      reported
+
+
+      For configuration-related issues:
+
+      - Direct users to the UI configuration panel
+
+      - Specify the exact configuration section and parameter name
+
+
+      For operational issues (throttling, timeouts, quotas):
+
+      - Provide immediate remediation steps (e.g., reduce concurrency, reprocess
+      failed documents)
+
+      - Include preventive measures to avoid recurrence
+
+
+      COMMON MISTAKES TO AVOID:
+
+      - Do NOT report "Lambda function returned error" as a root cause — that is
+      a symptom
+
+      - Do NOT recommend "check CloudWatch logs" as a recommendation — you are
+      already doing that
+
+      - Do NOT suggest code changes — users cannot modify Lambda functions
+
+      - Do NOT speculate about root cause without corroborating tool evidence
+
+      - Do NOT investigate more than 3 sample documents in a batch — focus on
+      pattern recognition
+
+      - Do NOT include search quality reflections, meta-analysis, or sections
+      not listed in the output format above
+    parameters:
+      max_log_events: '10'
+      time_range_hours_default: '24'
+      max_log_message_length: '400'
+      max_events_per_log_group: '5'
+      max_log_groups: '20'
+      max_stepfunction_timeline_events: '50'
+      max_stepfunction_error_length: '400'
+      max_stepfunction_history_pages: '10'
+      xray_slow_segment_threshold_ms: '5000'
+      xray_error_rate_threshold: '0.05'
+      xray_response_time_threshold_ms: '10000'
+      xray_analysis_hours: '3'
+      settings_cache_ttl_seconds: '300'
+  chat_companion:
+    model_id: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    error_patterns:
+      - ERROR
+      - CRITICAL
+      - FATAL
+      - Exception
+      - Traceback
+      - Failed
+      - Timeout
+      - AccessDenied
+      - ThrottlingException
+    system_prompt: >-
+      You are an intelligent error analysis agent for the GenAI IDP (Intelligent
+      Document Processing) system with access to specialized diagnostic tools.
+
+
+      SYSTEM ARCHITECTURE:
+
+      The GenAI IDP system processes documents through an AWS Step Functions
+      state machine with the following pipeline stages:
+
+      - OCR Stage: Extracts text/layout from documents using Amazon Textract or
+      Amazon Bedrock Data Automation (BDA)
+
+      - Classification Stage: Identifies the document class using a Bedrock LLM
+
+      - Extraction Stage: Extracts structured fields using a Bedrock LLM based
+      on class-specific configuration
+
+      - Assessment Stage: Evaluates extraction quality using a Bedrock LLM
+
+      - Summarization Stage (optional): Generates a document summary
+
+      - Evaluation Stage (optional): Scores extraction accuracy against ground
+      truth
+
+
+      BDA Alternative Branch:
+
+      - InvokeBDA → BDA Completion (EventBridge-triggered) → BDA ProcessResults
+
+      - BDA jobs are asynchronous; failures may appear in EventBridge delivery
+      or the BDA service itself
+
+
+      Key AWS services involved:
+
+      - AWS Step Functions: Orchestrates the pipeline workflow
+
+      - AWS Lambda: Executes each stage as an independent function
+
+      - Amazon DynamoDB: Tracks document status and metadata per stage
+
+      - Amazon CloudWatch: Captures logs from each Lambda function
+
+      - AWS X-Ray: Provides distributed tracing across Lambda and Bedrock calls
+
+      - Amazon Bedrock: Provides LLM inference for classification, extraction,
+      assessment, and summarization
+
+      - Amazon Textract: Performs OCR for non-BDA documents
+
+      - Amazon S3: Stores input documents, OCR results, and extracted output
+
+
+      INVESTIGATION WORKFLOW:
+
+      1. Identify the document status in DynamoDB to understand which pipeline
+      stage failed
+
+      2. Retrieve Step Functions execution details to get the execution timeline
+      and error event
+
+      3. Collect CloudWatch logs from the failing Lambda stage for detailed
+      error messages
+
+      4. Use X-Ray traces to identify performance bottlenecks or cascading
+      failures across services
+
+      5. Synthesize all evidence to determine root cause — never stop at the
+      first error message
+
+
+      TOOL USAGE:
+
+      - Document-specific analysis (user provides a filename or document ID):
+        → Use cloudwatch_document_logs and dynamodb_status as primary tools
+      - System-wide or batch analysis (no specific document):
+        → Use cloudwatch_logs and dynamodb_query to identify patterns
+      - Workflow failures and execution timeline:
+        → Use stepfunction_details for the execution event history
+      - Lambda configuration and environment context:
+        → Use lambda_lookup to check timeout settings, memory, and environment variables
+      - Which Bedrock model a pipeline stage uses (e.g. after a model error):
+        → Use fetch_pipeline_configuration with the document's config version to read the per-stage model IDs
+      - Distributed service interaction issues:
+        → Use xray_trace or xray_performance_analysis
+
+      Always use at least 2 different tool sources before concluding a root
+      cause. If a tool call returns no useful data, try an alternative — never
+      guess without evidence.
+
+
+      CRITICAL — DRILL INTO THE FAILING STAGE'S OWN LOGS:
+
+      The Step Functions error and the DynamoDB status_reason usually show a
+
+      GENERIC WRAPPER message (e.g. "Summarization failed for document X.pdf",
+
+      "Extraction failed"), because each stage Lambda catches the underlying
+
+      exception and re-raises a stage-level summary. That wrapper is a SYMPTOM,
+
+      not the root cause. You MUST fetch the CloudWatch logs of the specific
+
+      Lambda function for the failing stage and read the FIRST underlying
+
+      exception/traceback it logged (e.g. a Bedrock ResourceNotFoundException,
+
+      ThrottlingException, ValidationException, or a Python traceback). Search
+
+      that stage's log group by the failing Lambda's request ID (from the
+
+      Step Functions error cause or the X-Ray trace) with an "ERROR" filter, and
+
+      quote the earliest real error — not the last wrapper line. If the wrapper
+
+      message names a stage, the log group you need is that stage's function
+
+      (e.g. SummarizationFunction, ExtractionFunction, AssessmentFunction).
+
+
+      DO NOT CONFLATE UNRELATED NON-FATAL ISSUES WITH THE FAILURE:
+
+      A document's DynamoDB record may carry `ProcessingIssue` entries with
+
+      severity "warning" or non-terminal notes (e.g. an `assessment_incomplete`
+
+      row that self-healed or was recorded but did not stop the pipeline). These
+
+      are NOT necessarily the cause of a FAILED workflow. Before attributing the
+
+      failure to a ProcessingIssue, confirm it occurred in the SAME stage that
+
+      Step Functions reports as the failure point AND that its severity is
+
+      "error". If the failing stage differs from the stage that logged the
+
+      ProcessingIssue, treat the ProcessingIssue as context, not root cause, and
+
+      keep drilling into the failing stage's logs.
+
+
+      INVESTIGATION STRATEGY:
+
+      Use this approach for all investigations, whether a single document or a
+      large batch:
+
+
+      1. TRIAGE: Check DynamoDB for document status and which stage failed. For
+      batches, get a count of failed documents and their error status
+      distribution.
+
+
+      2. SAMPLE: For multiple failures, select 2-3 representative failed
+      documents. Avoid over-sampling — additional documents yield diminishing
+      returns.
+
+
+      3. TRACE THE CAUSAL CHAIN for each sampled document:
+         DynamoDB status → Step Functions execution timeline → CloudWatch error logs → X-Ray traces
+
+      4. APPLY THE "5 WHYS" — Never stop at the first error. Keep asking "what
+      caused THIS?":
+         Finding: "Extraction Lambda timed out" → Why?
+         "Lambda waited 14 minutes on Bedrock InvokeModel" → Why was it slow?
+         "Bedrock returned ThrottlingException, triggering exponential backoff" → Why throttled?
+         "Batch of 200 docs with extraction concurrency=10 exceeded Bedrock RPM quota"
+         ROOT CAUSE: "Extraction concurrency too high for the configured Bedrock account quota"
+
+      5. DISTINGUISH SYSTEMIC vs ISOLATED FAILURES:
+         - Same error type across many documents → systemic issue (quota, permissions, configuration, service limit)
+         - Different errors across documents → per-document issues (bad input, edge cases, unsupported format)
+
+      6. VALIDATE: Does the identified root cause explain ALL observed failures?
+
+
+      ROOT CAUSE vs SYMPTOM GUIDE:
+
+      - SYMPTOM: "Document processing failed"
+
+      - SYMPTOM: "Extraction Lambda returned error"
+
+      - CLOSER:  "ThrottlingException from Bedrock InvokeModel"
+
+      - ROOT CAUSE: "Bedrock RPM quota exceeded — batch concurrency generated
+      too many concurrent API calls"
+
+
+      - SYMPTOM: "Classification failed"
+
+      - CLOSER:  "Textract API timeout"
+
+      - ROOT CAUSE: "150-page PDF exceeded Textract async processing limit for
+      the configured region"
+
+
+      COMMON ERROR PATTERNS:
+
+      Use these patterns to guide your investigation and accelerate diagnosis:
+
+
+      1. THROTTLING — ThrottlingException, TooManyRequestsException, "Rate
+      exceeded", "Too many requests"
+         Likely cause: Batch size × concurrency > Bedrock RPM/TPM quota, or Textract TPS limit exceeded
+         Check: Concurrent Lambda executions, batch size, Bedrock model quotas
+
+      2. TIMEOUT — "Task timed out", "Lambda timeout", "socket timeout",
+      "Connection reset"
+         Likely cause: Large document (many pages), undersized Lambda timeout or memory, slow Bedrock inference
+         Check: Document page count, Lambda timeout configuration, model response latency in X-Ray
+
+      3. CONFIGURATION ERROR — KeyError, missing field, "not found in config",
+      validation error, AttributeError
+         Likely cause: Class definition or attribute names in config don't match expected schema; config changes deployed incorrectly
+         Check: DynamoDB config table, class definitions, attribute names for the affected document class
+
+      4. PERMISSIONS — AccessDeniedException, "not authorized", "is not
+      authorized to perform", ExpiredToken
+         Likely cause: Missing IAM policy, cross-account access issue, Bedrock model access not granted, KMS policy gap
+         Check: Lambda execution role policies, Bedrock model access in the console, S3 bucket policies
+
+      5. INPUT QUALITY — empty extraction results, very low confidence, "unable
+      to parse", Textract errors on specific pages
+         Likely cause: Poor scan quality, handwritten content, unsupported file format, corrupted PDF
+         Check: OCR output in S3, original document quality, Textract response for page-level errors
+
+      6. BDA-SPECIFIC — "BDA Job Failed", blueprint mismatch, async job timeout,
+      missing EventBridge event
+         Likely cause: Blueprint schema mismatch with document type, BDA service limit, EventBridge delivery failure
+         Check: BDA project configuration, blueprint compatibility, EventBridge rule and DLQ
+
+      7. BEDROCK MODEL ERRORS — ModelErrorException, "model returned an error",
+      context length exceeded
+         Likely cause: Document content too large for model context window, model unavailable in region, prompt issue
+         Check: Document page count, OCR text length, model availability, extraction prompt configuration
+
+      8. RETIRED / UNAVAILABLE MODEL — ResourceNotFoundException, "This model
+      version has reached the end of its life", "model identifier is invalid",
+      "could not be found"
+         Likely cause: The model ID configured for a stage (OCR/classification/extraction/assessment/summarization) has been retired (end-of-life) by Bedrock, or is not enabled/available in this account/region
+         Check: The Bedrock error does NOT name the model. To identify it, call fetch_pipeline_configuration with the document's config version (the ConfigVersion field from fetch_document_record) and read the model configured for the FAILING stage (match the stage to the failing Lambda — e.g. the "summarization" stage for SummarizationFunction). Name that exact model ID as the root cause and recommend switching that stage to a currently-supported model in the UI Configuration panel — do NOT just tell the user to "confirm the configured model".
+
+      OUTPUT FORMAT:
+
+      Always format your response with exactly these three sections in this
+      order:
+
+
+      ## Root Cause
+
+      **Confidence:** [HIGH | MEDIUM | LOW]
+
+      Identify the specific underlying technical reason why the error occurred.
+      Focus on the primary cause, not symptoms.
+
+
+      ## Recommendations
+
+      Provide specific, actionable steps to resolve the issue. Limit to top
+      three recommendations only.
+
+
+      <details>
+
+      <summary><strong>Evidence</strong></summary>
+
+
+      Format evidence with source information. Include relevant data from tool
+      responses:
+
+
+      **For CloudWatch logs:**
+
+      **Log Group:** [full log_group name]
+
+      **Log Stream:** [full log_stream name]
+
+      ```
+
+      [ERROR] timestamp message
+
+      ```
+
+
+      **For other sources (DynamoDB, Step Functions, X-Ray):**
+
+      **Source:** [service name and resource]
+
+      ```
+
+      Relevant data from tool response
+
+      ```
+
+
+      </details>
+
+
+      FORMATTING RULES:
+
+      - Use the exact three-section structure above
+
+      - Add Confidence (HIGH/MEDIUM/LOW) as the first line of the Root Cause
+      section
+
+      - Make the Evidence section collapsible using HTML details tags
+
+      - Include relevant data from all tool responses used
+
+      - For CloudWatch: Show complete log group and log stream names without
+      truncation
+
+      - Present evidence data in code blocks with appropriate source labels
+
+
+      RECOMMENDATION GUIDELINES:
+
+      For code-related issues or system bugs:
+
+      - Do not suggest code modifications — users cannot change Lambda code
+
+      - Describe the error in detail with timestamps and context so it can be
+      reported
+
+
+      For configuration-related issues:
+
+      - Direct users to the UI configuration panel
+
+      - Specify the exact configuration section and parameter name
+
+
+      For operational issues (throttling, timeouts, quotas):
+
+      - Provide immediate remediation steps (e.g., reduce concurrency, reprocess
+      failed documents)
+
+      - Include preventive measures to avoid recurrence
+
+
+      COMMON MISTAKES TO AVOID:
+
+      - Do NOT report "Lambda function returned error" as a root cause — that is
+      a symptom
+
+      - Do NOT recommend "check CloudWatch logs" as a recommendation — you are
+      already doing that
+
+      - Do NOT suggest code changes — users cannot modify Lambda functions
+
+      - Do NOT speculate about root cause without corroborating tool evidence
+
+      - Do NOT investigate more than 3 sample documents in a batch — focus on
+      pattern recognition
+
+      - Do NOT include search quality reflections, meta-analysis, or sections
+      not listed in the output format above
+    parameters:
+      max_log_events: '10'
+      time_range_hours_default: '24'
+      max_log_message_length: '400'
+      max_events_per_log_group: '5'
+      max_log_groups: '20'
+      max_stepfunction_timeline_events: '50'
+      max_stepfunction_error_length: '400'
+      max_stepfunction_history_pages: '10'
+      xray_slow_segment_threshold_ms: '5000'
+      xray_error_rate_threshold: '0.05'
+      xray_response_time_threshold_ms: '10000'
+      xray_analysis_hours: '3'
+      settings_cache_ttl_seconds: '300'
+classes:
+  - $schema: https://json-schema.org/draft/2020-12/schema
+    $id: Customer-Change-Request
+    x-aws-idp-document-type: Customer-Change-Request
+    type: object
+    description: >-
+      A letter, note or form written by an account holder to the bank asking for
+      their personal details on the account to be updated: a change of name,
+      mailing address and/or phone number. Usually handwritten or typed in the
+      first person, opening with a greeting such as 'Hi', 'Hello' or 'To
+      Barclays', containing phrases like 'please update', 'change my name', 'my
+      new address', 'current name on the account', and often a sign-off with the
+      customer's name, a card ending or an address. It often refers to an
+      enclosed proof document. This is NOT the proof document itself: a marriage
+      certificate, divorce decree, court name-change order or naturalization
+      certificate is an official government or court record, printed on a formal
+      template with seals, case or registration numbers and an official
+      signature.
+    required:
+      - requested_change_types
+      - customer_signed_name
+    properties:
+      requested_change_types:
+        type: array
+        description: >-
+          Every type of change the customer asks for. Use only these values:
+          NAME, ADDRESS, PHONE. Include NAME only if the customer asks to change
+          their name, ADDRESS only if they ask to change their address, PHONE
+          only if they ask to change their phone number. A contact address
+          written below the signature is NOT a request to change the address
+          unless the letter says it is new or asks for it to be updated.
+        items:
+          type: string
+          enum:
+            - NAME
+            - ADDRESS
+            - PHONE
+        x-aws-idp-evaluation-method: HUNGARIAN
+        x-aws-idp-list-item-description: One requested change type.
+      current_name_on_account:
+        type: string
+        description: >-
+          The name the account is currently held under, e.g. after 'current
+          name', 'my account is currently under the name', or on the left of an
+          arrow (old → new). This is NOT the new name.
+        x-aws-idp-evaluation-method: FUZZY
+      new_name_requested:
+        type: string
+        description: >-
+          The new name the customer wants on the account, e.g. after 'change
+          to', 'my new name is', 'my legal name has now changed to', or on the
+          right of an arrow. Leave empty if no name change is requested.
+        x-aws-idp-evaluation-method: FUZZY
+      name_change_reason:
+        type: string
+        description: >-
+          Why the name changed, as stated by the customer, e.g. marriage,
+          divorce, naturalization, court order. Leave empty if not stated.
+        x-aws-idp-evaluation-method: SEMANTIC
+      current_address:
+        type: object
+        description: >-
+          The customer's existing address on the account, only if the letter
+          explicitly says it is the old or current address. This is NOT the new
+          address.
+        properties:
+          street:
+            type: string
+            description: Street number and street name, plus any apartment or unit.
+            x-aws-idp-evaluation-method: EXACT
+          city:
+            type: string
+            description: City or town.
+            x-aws-idp-evaluation-method: EXACT
+          state:
+            type: string
+            description: State as written, e.g. CA, NV.
+            x-aws-idp-evaluation-method: EXACT
+          postal_code:
+            type: string
+            description: ZIP or postal code, exactly as written.
+            x-aws-idp-evaluation-method: EXACT
+      new_address:
+        type: object
+        description: >-
+          The new address the customer wants on the account, only if they ask
+          for an address change (e.g. 'I have moved', 'my new address is'). If
+          an address appears only in the sign-off with no request to change it,
+          leave this empty and put it in contact_address_provided.
+        properties:
+          street:
+            type: string
+            description: Street number and street name, plus any apartment or unit.
+            x-aws-idp-evaluation-method: EXACT
+          city:
+            type: string
+            description: City or town.
+            x-aws-idp-evaluation-method: EXACT
+          state:
+            type: string
+            description: State as written, e.g. CA, NV.
+            x-aws-idp-evaluation-method: EXACT
+          postal_code:
+            type: string
+            description: ZIP or postal code, exactly as written.
+            x-aws-idp-evaluation-method: EXACT
+      contact_address_provided:
+        type: object
+        description: >-
+          Any address written in the sign-off or signature block of the letter,
+          whether or not a change is requested.
+        properties:
+          street:
+            type: string
+            description: Street number and street name, plus any apartment or unit.
+            x-aws-idp-evaluation-method: EXACT
+          city:
+            type: string
+            description: City or town.
+            x-aws-idp-evaluation-method: EXACT
+          state:
+            type: string
+            description: State as written, e.g. CA, NV.
+            x-aws-idp-evaluation-method: EXACT
+          postal_code:
+            type: string
+            description: ZIP or postal code, exactly as written.
+            x-aws-idp-evaluation-method: EXACT
+      current_phone_number:
+        type: string
+        description: >-
+          The existing phone number on the account, only if the letter says it
+          is the old or current number.
+        x-aws-idp-evaluation-method: EXACT
+      new_phone_number:
+        type: string
+        description: >-
+          The new phone number the customer wants on the account, only if a
+          phone change is requested. This is NOT a number that appears without
+          any request to change it.
+        x-aws-idp-evaluation-method: EXACT
+      card_or_account_last_digits:
+        type: string
+        description: >-
+          Last digits of the card or account the customer quotes, e.g. after
+          'card ending', 'account ending'. Digits only.
+        x-aws-idp-evaluation-method: EXACT
+      supporting_documents_referenced:
+        type: array
+        description: >-
+          Proof documents the customer says are enclosed or attached, e.g.
+          marriage certificate, divorce papers, court order, certificate of
+          naturalization, utility bill.
+        items:
+          type: string
+        x-aws-idp-evaluation-method: HUNGARIAN
+        x-aws-idp-list-item-description: One referenced supporting document.
+      customer_signed_name:
+        type: string
+        description: The name the customer signs off with at the end of the letter.
+        x-aws-idp-evaluation-method: FUZZY
+  - $schema: https://json-schema.org/draft/2020-12/schema
+    $id: Marriage-Certificate
+    x-aws-idp-document-type: Marriage-Certificate
+    type: object
+    description: >-
+      An official certificate issued by a state or county vital records office
+      recording a marriage. Printed on a formal template titled 'Certificate of
+      Marriage', with spouse data blocks (full name, date of birth, new last
+      name adopted), a registration number, an officiant signature and an
+      official seal. This is NOT a Divorce-Decree (which dissolves a marriage
+      and is issued by a court) and NOT a customer letter.
+    required:
+      - spouse_1_full_name
+      - marriage_date
+    properties:
+      registration_number:
+        type: string
+        description: >-
+          Local registration or certificate number, e.g. 'LOCAL REGISTRATION
+          NUMBER'.
+        x-aws-idp-evaluation-method: EXACT
+      issuing_authority:
+        type: string
+        description: State and department that issued the certificate, from the header.
+        x-aws-idp-evaluation-method: EXACT
+      spouse_1_full_name:
+        type: string
+        description: >-
+          Full name (first, middle, last) in the FIRST SPOUSE DATA block, before
+          the marriage.
+        x-aws-idp-evaluation-method: FUZZY
+      spouse_1_date_of_birth:
+        type: string
+        description: Date of birth in the first spouse block, as written.
+        x-aws-idp-evaluation-method: EXACT
+      spouse_1_new_last_name:
+        type: string
+        description: '''New last name adopted'' for the first spouse.'
+        x-aws-idp-evaluation-method: EXACT
+      spouse_2_full_name:
+        type: string
+        description: Full name in the SECOND SPOUSE DATA block.
+        x-aws-idp-evaluation-method: FUZZY
+      spouse_2_date_of_birth:
+        type: string
+        description: Date of birth in the second spouse block.
+        x-aws-idp-evaluation-method: EXACT
+      spouse_2_new_last_name:
+        type: string
+        description: '''New last name adopted'' for the second spouse.'
+        x-aws-idp-evaluation-method: EXACT
+      marriage_date:
+        type: string
+        description: Date the marriage took place, from the certification text.
+        x-aws-idp-evaluation-method: EXACT
+      marriage_location:
+        type: string
+        description: City and state where the marriage took place.
+        x-aws-idp-evaluation-method: FUZZY
+      officiant_name:
+        type: string
+        description: Name next to 'Officiant signature'.
+        x-aws-idp-evaluation-method: FUZZY
+  - $schema: https://json-schema.org/draft/2020-12/schema
+    $id: Divorce-Decree
+    x-aws-idp-document-type: Divorce-Decree
+    type: object
+    description: >-
+      A court decree, usually from a family court, dissolving a marriage. Titled
+      e.g. 'Decree of Dissolution of Marriage', with a case number, petitioner
+      and respondent names, ordered paragraphs ('IT IS HEREBY ORDERED, ADJUDGED
+      AND DECREED') and a judge's signature and court stamp. It may include a
+      'Restoration of Former Name' clause. This is NOT a
+      Name-Change-Court-Order, whose sole purpose is changing a name rather than
+      ending a marriage, and NOT a Marriage-Certificate.
+    required:
+      - case_number
+      - petitioner_name
+    properties:
+      court_name:
+        type: string
+        description: Name of the court and county/state from the header.
+        x-aws-idp-evaluation-method: FUZZY
+      case_number:
+        type: string
+        description: Case number, e.g. after 'CASE NO:'.
+        x-aws-idp-evaluation-method: EXACT
+      petitioner_name:
+        type: string
+        description: Name of the petitioner, labelled 'Petitioner'.
+        x-aws-idp-evaluation-method: FUZZY
+      respondent_name:
+        type: string
+        description: Name of the respondent, labelled 'Respondent'.
+        x-aws-idp-evaluation-method: FUZZY
+      name_restored:
+        type: boolean
+        description: True if the decree restores a former or maiden name to a party.
+        x-aws-idp-evaluation-method: EXACT
+      restored_name:
+        type: string
+        description: >-
+          The full legal name the party is authorized to resume, from the
+          'Restoration of former name' clause. Leave empty if none.
+        x-aws-idp-evaluation-method: FUZZY
+      decree_date:
+        type: string
+        description: Date the decree was entered or filed, from the court stamp or text.
+        x-aws-idp-evaluation-method: EXACT
+      judge_name:
+        type: string
+        description: Name of the judge who signed the decree.
+        x-aws-idp-evaluation-method: FUZZY
+  - $schema: https://json-schema.org/draft/2020-12/schema
+    $id: Name-Change-Court-Order
+    x-aws-idp-document-type: Name-Change-Court-Order
+    type: object
+    description: >-
+      A court decree granting an individual's petition to change their legal
+      name. Titled e.g. 'Decree for Change of Name', 'In the matter of the
+      application of … for change of name to …', with a case number, a hearing
+      date, findings, an order that the name 'is hereby changed from X to Y', a
+      court seal and a judge's signature. This is NOT a Divorce-Decree (which
+      ends a marriage) and NOT a Certificate-of-Naturalization (issued by USCIS
+      for citizenship).
+    required:
+      - case_number
+      - former_name
+      - new_name
+    properties:
+      court_name:
+        type: string
+        description: Court name and county/state from the header.
+        x-aws-idp-evaluation-method: FUZZY
+      case_number:
+        type: string
+        description: Case number, e.g. after 'CASE NO:'.
+        x-aws-idp-evaluation-method: EXACT
+      former_name:
+        type: string
+        description: The petitioner's legal name before the change ('changed from …').
+        x-aws-idp-evaluation-method: FUZZY
+      new_name:
+        type: string
+        description: The legal name granted by the order ('changed … to …').
+        x-aws-idp-evaluation-method: FUZZY
+      petitioner_address:
+        type: object
+        description: Residential address of the petitioner stated in the court findings.
+        properties:
+          street:
+            type: string
+            description: Street number and street name, plus any apartment or unit.
+            x-aws-idp-evaluation-method: EXACT
+          city:
+            type: string
+            description: City or town.
+            x-aws-idp-evaluation-method: EXACT
+          state:
+            type: string
+            description: State as written, e.g. CA, NV.
+            x-aws-idp-evaluation-method: EXACT
+          postal_code:
+            type: string
+            description: ZIP or postal code, exactly as written.
+            x-aws-idp-evaluation-method: EXACT
+      hearing_date:
+        type: string
+        description: Date of the hearing.
+        x-aws-idp-evaluation-method: EXACT
+      filed_date:
+        type: string
+        description: Date the order was filed or recorded, from the court seal.
+        x-aws-idp-evaluation-method: EXACT
+      judge_name:
+        type: string
+        description: Name of the judge who signed the order.
+        x-aws-idp-evaluation-method: FUZZY
+  - $schema: https://json-schema.org/draft/2020-12/schema
+    $id: Certificate-of-Naturalization
+    x-aws-idp-document-type: Certificate-of-Naturalization
+    type: object
+    description: >-
+      A U.S. government certificate issued by USCIS confirming a person became a
+      U.S. citizen. Titled 'Certificate of Naturalization', with a USCIS
+      registration number (A-number), a certificate number, the holder's
+      original name, any new legal name declared, date of birth, country of
+      former allegiance, a holder photo and the USCIS director's signature. This
+      is NOT a court Name-Change-Court-Order and NOT a customer letter.
+    required:
+      - certificate_number
+      - original_name
+    properties:
+      uscis_registration_number:
+        type: string
+        description: USCIS registration number (A-number), e.g. 'A-0xx-xxx-xxx'.
+        x-aws-idp-evaluation-method: EXACT
+      certificate_number:
+        type: string
+        description: Certificate number, e.g. after 'CERTIFICATE NO:'.
+        x-aws-idp-evaluation-method: EXACT
+      original_name:
+        type: string
+        description: Value after 'ORIGINAL NAME'.
+        x-aws-idp-evaluation-method: FUZZY
+      new_legal_name_declared:
+        type: string
+        description: Value after 'NEW LEGAL NAME DECLARED'. Leave empty if not present.
+        x-aws-idp-evaluation-method: FUZZY
+      date_of_birth:
+        type: string
+        description: Holder's date of birth.
+        x-aws-idp-evaluation-method: EXACT
+      naturalization_date:
+        type: string
+        description: Date of the ceremony or determination.
+        x-aws-idp-evaluation-method: EXACT
+      naturalization_location:
+        type: string
+        description: City and state where naturalization took place.
+        x-aws-idp-evaluation-method: FUZZY
+policy_classes: []
+discovery:
+  without_ground_truth:
+    model_id: us.amazon.nova-pro-v1:0
+    system_prompt: >-
+      You are an expert in processing forms. Extracting data from images and
+      documents. Analyze forms line by line to identify field names, data types,
+      and organizational structure. Focus on creating comprehensive blueprints
+      for document processing without extracting actual values.
+    temperature: '0.0'
+    top_p: '0.1'
+    max_tokens: null
+    user_prompt: >-
+      This image contains forms data. Analyze the form line by line. Image may
+      contain multiple pages, process all the pages. Form may contain multiple
+      name value pair in one line. Extract all the names in the form including
+      the name value pair which doesn't have value. Organize them into groups,
+      extract field_name, data_type and field description. Field names should be
+      less than 30 characters, use camelCase or snake_case, name should not
+      start with number and name should not have special characters. Field
+      descriptions should include location hints (box number, line number,
+      section). Field_name should be unique within the group. Make sure to fill
+      out the top-level "$id" and "x-aws-idp-document-type" with the extracted
+      document class, and the top-level "description" with a brief description
+      of the document class. Group the fields based on the section they are
+      grouped in the form. Group should have attributeType as "group". Nesting
+      Groups: Do not nest the groups i.e. groups within groups. All groups
+      should be directly associated under main "properties". If the group
+      repeats and follows table format, update the attributeType as "list". Do
+      not extract the values. Return the extracted data in JSON format. Format
+      the extracted data using the below JSON format: Format the extracted
+      groups and fields using the below JSON format:
+  with_ground_truth:
+    model_id: us.amazon.nova-pro-v1:0
+    system_prompt: >-
+      You are an expert in processing forms. Extracting data from images and
+      documents. Use provided ground truth data as reference to optimize field
+      extraction and ensure consistency with expected document structure and
+      field definitions.
+    temperature: '0.0'
+    top_p: '0.1'
+    max_tokens: null
+    user_prompt: >-
+      This image contains unstructured data. Analyze the data line by line using
+      the provided ground truth as reference. <GROUND_TRUTH_REFERENCE>
+      {ground_truth_json} </GROUND_TRUTH_REFERENCE> Ground truth reference JSON
+      has the fields we are interested in extracting from the document/image.
+      Use the ground truth to optimize field extraction. Match field names, data
+      types, and groupings from the reference. Image may contain multiple pages,
+      process all pages. Extract all field names including those without values.
+      Do not change the group name and field name from ground truth in the
+      extracted data json. Add field_description field for every field which
+      will contain instruction to LLM to extract the field data from the
+      image/document. Add data_type field for every field. Make sure to fill out
+      the top-level "$id" and "x-aws-idp-document-type" with the extracted
+      document class, and the top-level "description" with a brief description
+      of the document class. Nesting Groups: Do not nest the groups i.e. groups
+      within groups. All groups should be directly associated under main
+      "properties". If the group repeats and follows table format, update the
+      attributeType as "list". Do not extract the values. Format the extracted
+      data using the below JSON format: Format the extracted groups and fields
+      using the below JSON format:
+  auto_split:
+    model_id: us.anthropic.claude-opus-4-6-v1:1m
+    system_prompt: >-
+      You are an expert document analyst. Your task is to identify distinct
+      document sections within a multi-page document package. Return only valid
+      JSON.
+    temperature: '0.0'
+    top_p: '0.1'
+    max_tokens: null
+    user_prompt: >-
+      Analyze this multi-page document package. Identify the page boundaries
+      where different document types or sections begin and end. For each
+      distinct document section, provide: - "start": the first page number
+      (1-based) - "end": the last page number (1-based) - "type": a short label
+      for the document type (e.g., "W2 Form", "Letter", "Invoice") Return ONLY a
+      JSON array, no other text: [{"start": 1, "end": 2, "type": "Letter"},
+      {"start": 3, "end": 3, "type": "Invoice"}]
+  multi_document:
+    embedding_model_id: us.cohere.embed-v4:0
+    analysis_model_id: us.anthropic.claude-sonnet-4-6
+    temperature: '0.0'
+    max_tokens: null
+    max_documents: '500'
+    min_cluster_size: '2'
+    num_sample_documents: '3'
+    max_sample_size: '5'
+    max_concurrent_embeddings: '5'
+    max_concurrent_clusters: '3'
+    system_prompt: ''
+  rules:
+    model: global.anthropic.claude-sonnet-4-6
+    system_prompt: >-
+      You are an expert in analyzing policy documents and extracting business
+      rules, regulations, and compliance requirements. Extract rules as
+      structured, actionable validation statements.
+    task_prompt: >-
+      <background> You are an expert in regulatory document analysis. Your task
+      is to extract ALL business rules, regulations, compliance requirements,
+      and validation criteria from the attached policy document as a single flat
+      list of rules. </background>
+
+      <task> Analyze the policy document thoroughly, page by page. For each rule
+      found:
+
+      1. Give the rule a short, descriptive snake_case name (e.g.,
+      "bundled_services_not_separate",
+         "modifier_59_distinct_sites", "prior_auth_required")
+
+      2. Write a clear, actionable description — phrased as a yes/no validation
+      question
+         or checkable statement
+
+      3. Include specific codes, numbers, thresholds, or conditions mentioned
+
+      4. Note any exceptions or special cases within the description
+
+      5. Reference the page number or section where the rule was found </task>
+
+      <extraction-guidelines> Guidelines: - Extract rules VERBATIM from the
+      document where possible - Each rule should be a self-contained, evaluable
+      statement - Rules should be specific enough to validate a transaction
+      against - Do NOT classify or categorize the rules — output one flat list -
+      Use descriptive snake_case names as rule identifiers (NOT generic
+      "rule_1", "rule_2") - Each rule description should be phrased as a
+      validation question or checkable statement - Do NOT interpret or infer
+      rules not explicitly stated in the document - Process ALL pages of the
+      document - If a rule has exceptions, include them in the description
+      </extraction-guidelines>
+
+      <output-format> Return ONLY a valid JSON array containing exactly ONE
+      object. All rules go into a single "rule_properties" dict with descriptive
+      snake_case keys:
+
+      [
+          {
+              "x-aws-idp-rule-type": "policy_rules",
+              "description": "All rules extracted from the policy document",
+              "rule_properties": {
+                  "bundled_services_not_separate": {
+                      "description": "Are bundled services (exploration, lysis of adhesions, closure, anesthesia) NOT reported separately from the primary surgical procedure?",
+                      "page": "V-5"
+                  },
+                  "modifier_59_distinct_sites": {
+                      "description": "Is modifier 59 used only when procedures are performed at distinctly different anatomic sites or during separate patient encounters?",
+                      "page": "V-8"
+                  },
+                  "prior_auth_required": {
+                      "description": "Has prior authorization been obtained before performing procedures that require pre-approval per the policy?",
+                      "page": "III-4"
+                  },
+                  "medical_necessity_documented": {
+                      "description": "Is medical necessity documentation included to support the procedure performed?",
+                      "page": "IV-1"
+                  }
+              }
+          }
+      ] </output-format>
+
+      <final-instructions> Extract rules from the attached policy document by:
+      1. Reading every page systematically to identify all stated rules 2.
+      Giving each rule a short, descriptive snake_case name 3. Phrasing each
+      rule as a yes/no validation question 4. Including page references for
+      traceability 5. Placing ALL rules into a single "rule_properties" object
+      under one wrapper 6. Do NOT include any text outside the JSON array -
+      return ONLY valid JSON </final-instructions>
+    temperature: '0.0'
+    top_p: '0.0'
+    top_k: '5.0'
+    max_tokens: null
+    agentic:
+      enabled: false
+      review_agent: false
+      review_agent_model: global.anthropic.claude-sonnet-4-6
+evaluation:
+  enabled: true
+  llm_method:
+    top_p: '0.0'
+    max_tokens: null
+    top_k: '5.0'
+    reasoning_effort: medium
+    task_prompt: >-
+      I need to evaluate attribute extraction for a document of class:
+      {DOCUMENT_CLASS}. For the attribute named "{ATTRIBUTE_NAME}" described as
+      "{ATTRIBUTE_DESCRIPTION}": - Expected value: {EXPECTED_VALUE} - Actual
+      value: {ACTUAL_VALUE} Do these values match in meaning, taking into
+      account formatting differences, word order, abbreviations, and semantic
+      equivalence? Provide your assessment as a JSON with three fields: -
+      "match": boolean (true if they match, false if not) - "score": number
+      between 0 and 1 representing the confidence/similarity score - "reason":
+      brief explanation of your decision Respond ONLY with the JSON and nothing
+      else. Here's the exact format: {
+        "match": true or false,
+        "score": 0.0 to 1.0,
+        "reason": "Your explanation here"
+      }
+    temperature: '0.0'
+    model: us.anthropic.claude-sonnet-4-6
+    system_prompt: >-
+      You are an evaluator that helps determine if the predicted and expected
+      values match for document attribute extraction. You will consider the
+      context and meaning rather than just exact string matching.
+postprocessing:
+  enabled: false
+  arn: null
+  onError: continue
+  args: []
+  featureId: ''
+  allowDocumentUpdate: true
+pricing: null
+summary: null
+_config_format: full
